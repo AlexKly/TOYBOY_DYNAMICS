@@ -17,6 +17,11 @@ class AutoBoxing:
         pass
 
     def detect_edges(self, filename):
+        """
+
+        :param filename:
+        :return:
+        """
         # Read image:
         img = cv2.imread(filename)
         # Convert to grayscale:
@@ -33,6 +38,11 @@ class AutoBoxing:
         return edges
 
     def create_box(self, edges):
+        """
+        
+        :param edges:
+        :return:
+        """
         nonzero_x_coords = list()
         nonzero_y_coords = list()
         for y in range(edges.shape[0]):
