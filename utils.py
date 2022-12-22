@@ -2,7 +2,7 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from sklearn import model_selection
-import os, sys, cv2, logging, albumentations
+import os, sys, cv2, yaml, shutil, logging, albumentations
 
 
 format = '%(asctime)s,%(msecs)03d %(levelname)-4s [%(filename)s:%(lineno)d] %(message)s'
@@ -15,7 +15,8 @@ __author__ = 'Alex Klyuev'
 
 
 class Configurations:
-    def __init__(self, dir_dataset, box_type='pascal_voc', aug_copies=15, test_size=0.3, seed=42, verbose=1):
+    def __init__(self, dir_dataset, dir_yolo_dataset, final_yolo_dataset_loc, box_type='pascal_voc', aug_copies=15,
+                 test_size=0.3, seed=42, verbose=1):
         # Dataset paths:
         self.dir_dataset = dir_dataset
         self.dir_images = self.dir_dataset/'images'
@@ -24,6 +25,15 @@ class Configurations:
         self.dir_orig_labels = self.dir_labels/'orig'
         self.dir_augmented_images = self.dir_images/'augmented'
         self.dir_augmented_labels = self.dir_labels/'augmented'
+        self.dir_yolo_dataset = dir_yolo_dataset
+        self.dir_yolo_images = self.dir_yolo_dataset/'images'
+        self.dir_yolo_labels = self.dir_yolo_dataset/'labels'
+        self.dir_yolo_images_train = self.dir_yolo_images/'train'
+        self.dir_yolo_images_test = self.dir_yolo_images/'test'
+        self.dir_yolo_labels_train = self.dir_yolo_labels/'train'
+        self.dir_yolo_labels_test = self.dir_yolo_labels/'test'
+        self.final_yolo_dataset_location = final_yolo_dataset_loc
+        self.yaml_fn = self.dir_yolo_dataset/f'{str(self.dir_yolo_dataset).split("/")[-1]}.yaml'
         # Formats:
         self.label_exts = ['txt']
         self.image_exts = ['png', 'jpg', 'gif', 'jpeg']
@@ -43,13 +53,32 @@ class Utils:
         self.dir_augmented_images = configs.dir_augmented_images
         self.dir_orig_labels = configs.dir_orig_labels
         self.dir_augmented_labels = configs.dir_augmented_labels
+        self.dir_yolo_dataset = configs.dir_yolo_dataset
+        self.dir_yolo_images = configs.dir_yolo_images
+        self.dir_yolo_labels = configs.dir_yolo_labels
+        self.dir_yolo_images_train = configs.dir_yolo_images_train
+        self.dir_yolo_images_test = configs.dir_yolo_images_test
+        self.dir_yolo_labels_train = configs.dir_yolo_labels_train
+        self.dir_yolo_labels_test = configs.dir_yolo_labels_test
         self.labels = None
         self.verbose = configs.verbose
         if self.verbose == 2: logging.info('Utils initialized.')
 
     def init_files(self):
         if self.verbose == 2: logging.info('Start files initialization.')
-        paths = [self.dir_labels, self.dir_orig_labels, self.dir_augmented_images, self.dir_augmented_labels]
+        paths = [
+            self.dir_labels,
+            self.dir_orig_labels,
+            self.dir_augmented_images,
+            self.dir_augmented_labels,
+            self.dir_yolo_dataset,
+            self.dir_yolo_images,
+            self.dir_yolo_labels,
+            self.dir_yolo_images_train,
+            self.dir_yolo_images_test,
+            self.dir_yolo_labels_train,
+            self.dir_yolo_labels_test
+        ]
         for p in paths:
             if not os.path.exists(str(p)):
                 os.mkdir(str(p))
@@ -88,6 +117,12 @@ class Utils:
         if not os.path.exists('/'.join(str(path_to_save).split('/')[:-1])):
             os.mkdir('/'.join(str(path_to_save).split('/')[:-1]))
         cv2.imwrite(path_to_save, data)
+
+    @staticmethod
+    def remove_files(dir_f):
+        files = [f for f in os.listdir(dir_f) if os.path.isfile(os.path.join(dir_f, f))]
+        for f in files:
+            os.remove(f)
 
 
 class AutoBoxing:
@@ -195,6 +230,8 @@ class DataAugmentation:
 
 class DatasetCreator:
     def __init__(self, configs):
+        self.yolo_ds_loc = configs.final_yolo_dataset_location
+        self.yaml_fn = configs.yaml_fn
         self.utils = Utils(configs=configs)
         self.utils.init_files()
         self.utils.init_labels()
@@ -264,35 +301,57 @@ class DatasetCreator:
             shuffle=True
         )
 
-    def compile_ds_for_yolo(self, dir_images, dir_labels, dir_images_aug, dir_labels_aug):
+    def compile_ds_for_yolo(self, dir_images, dir_labels, dir_images_aug, dir_labels_aug, dir_yolo_train_images,
+                            dir_yolo_train_labels, dir_yolo_test_images, dir_yolo_test_labels):
         paths = self.train_test_split(
             dir_images=dir_images,
             dir_labels=dir_labels,
             dir_images_aug=dir_images_aug,
             dir_labels_aug=dir_labels_aug
         )
-        
+        for p in tqdm(zip(paths[0], paths[2]), desc='Coping train files to YOLO ds', disable=not self.verbose):
+            shutil.copy(src=p[0], dst=f'{dir_yolo_train_images}/{p[0].split("/")[-1]}')
+            shutil.copy(src=p[1], dst=f'{dir_yolo_train_labels}/{p[1].split("/")[-1]}')
+        for p in tqdm(zip(paths[1], paths[3]), desc='Coping test files to YOLO ds', disable=not self.verbose):
+            shutil.copy(src=p[0], dst=f'{dir_yolo_test_images}/{p[0].split("/")[-1]}')
+            shutil.copy(src=p[1], dst=f'{dir_yolo_test_labels}/{p[1].split("/")[-1]}')
 
-
+        yaml_labels = {self.utils.labels[k]: k for k in self.utils.labels.keys()}
+        yaml_content = {
+            'path': f'{self.yolo_ds_loc}',
+            'train': 'images/train',
+            'val': 'images/test',
+            'test': 'images/test',
+            'names': yaml_labels
+        }
+        with self.yaml_fn.open('w') as yaml_file:
+            yaml.dump(yaml_content, yaml_file, default_flow_style=False, sort_keys=False)
 
 
 if __name__ == '__main__':
-    configs = Configurations(dir_dataset=Path('/home/aklyuev/PycharmProjects/TOYBOY_DYNAMICS/objects_dataset'), box_type='yolo')
+    configs = Configurations(
+        dir_dataset=Path('/home/aklyuev/PycharmProjects/TOYBOY_DYNAMICS/objects_dataset'),
+        dir_yolo_dataset=Path('/home/aklyuev/PycharmProjects/TOYBOY_DYNAMICS/yolo_dataset'),
+        final_yolo_dataset_loc=Path('/home/aklyuev/PycharmProjects/TOYBOY_DYNAMICS/yolo_dataset'),
+        box_type='yolo'
+    )
     utils = Utils(configs=configs)
     dc = DatasetCreator(configs=configs)
-    t = dc.train_test_split(
-        dir_images=configs.dir_orig_images,
-        dir_labels=configs.dir_orig_labels,
+    """
+    dc.create_augmented_set(
+        dir_images=configs.dir_images,
+        dir_labels=configs.dir_labels,
         dir_images_aug=configs.dir_augmented_images,
         dir_labels_aug=configs.dir_augmented_labels
     )
-
-    #ab = AutoBoxing(box_type='yolo')
-    #e = ab.detect_edges(filename='/home/aklyuev/PycharmProjects/ToyBoyDynamics/TOYBOY DYNAMICS/datasets/triangle_part/images/0.png')
-    #img = cv2.imread('/home/aklyuev/PycharmProjects/ToyBoyDynamics/TOYBOY DYNAMICS/datasets/triangle_part/images/0.png')
-    #box_c = ab.create_box(edges=e)
-    #print(box_c)
-    #image = cv2.rectangle(img, box_c[0], box_c[1], (0, 0, 255), 2)
-    #window_name = 'Image'
-    #cv2.imshow(window_name, image)
-    #cv2.waitKey(0)
+    dc.compile_ds_for_yolo(
+        dir_images=configs.dir_orig_images,
+        dir_labels=configs.dir_orig_labels,
+        dir_images_aug=configs.dir_augmented_images,
+        dir_labels_aug=configs.dir_augmented_labels,
+        dir_yolo_train_images=configs.dir_yolo_images_train,
+        dir_yolo_train_labels=configs.dir_yolo_labels_train,
+        dir_yolo_test_images=configs.dir_yolo_images_test,
+        dir_yolo_test_labels=configs.dir_yolo_labels_test
+    )
+    """
