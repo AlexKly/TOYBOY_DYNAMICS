@@ -1,7 +1,9 @@
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
+from sklearn import model_selection
 import os, sys, cv2, logging, albumentations
+
 
 format = '%(asctime)s,%(msecs)03d %(levelname)-4s [%(filename)s:%(lineno)d] %(message)s'
 logging.basicConfig(level=logging.INFO, datefmt='%H:%M:%S', format=format, force=True)
@@ -13,7 +15,7 @@ __author__ = 'Alex Klyuev'
 
 
 class Configurations:
-    def __init__(self, dir_dataset, box_type='pascal_voc', aug_copies=15, verbose=1):
+    def __init__(self, dir_dataset, box_type='pascal_voc', aug_copies=15, test_size=0.3, seed=42, verbose=1):
         # Dataset paths:
         self.dir_dataset = dir_dataset
         self.dir_images = self.dir_dataset/'images'
@@ -28,6 +30,8 @@ class Configurations:
         # Other:
         self.box_type = box_type
         self.copies = aug_copies
+        self.test_size = test_size
+        self.seed = seed
         self.verbose = verbose
         if self.verbose == 2: logging.info('Configurations initialized.')
 
@@ -197,8 +201,10 @@ class DatasetCreator:
         self.auto_boxing = AutoBoxing(configs=configs)
         self.data_augmentation = DataAugmentation(configs=configs)
         self.copies = configs.copies
+        self.test_size = configs.test_size
         self.label_exts = configs.label_exts
         self.image_exts = configs.image_exts
+        self.seed = configs.seed
         self.verbose = configs.verbose
         if self.verbose == 2: logging.info('DatasetCreator initialized.')
 
@@ -212,7 +218,7 @@ class DatasetCreator:
             label_fn = f'{p.split("/")[-1].split(".")[0]}.txt'
             self.utils.save_label(data=bbox_c, label=label, dir_labels=dir_labels, sub_d=sub_d, p=label_fn)
 
-    def create_augmented_set(self, dir_images, dir_labels, dir_image_aug, dir_labels_aug):
+    def create_augmented_set(self, dir_images, dir_labels, dir_images_aug, dir_labels_aug):
         if self.verbose: logging.info('Start to create augmented set.')
         images_paths = sorted(self.utils.load_files_paths(d=dir_images, ext=self.image_exts))
         labels_paths = sorted(self.utils.load_files_paths(d=dir_labels, ext=self.label_exts))
@@ -230,7 +236,7 @@ class DatasetCreator:
                 label_fn_lab = f'{paths[0].split("/")[-1].split(".")[0]}_{i}.txt'
                 self.utils.save_image(
                     data=transformed_image,
-                    dir_images=dir_image_aug,
+                    dir_images=dir_images_aug,
                     sub_d=sub_d,
                     p=label_fn_im
                 )
@@ -242,14 +248,30 @@ class DatasetCreator:
                     p=label_fn_lab
                 )
 
+    def train_test_split(self, dir_images, dir_labels, dir_images_aug, dir_labels_aug):
+        orig_images_p = utils.load_files_paths(d=dir_images, ext=self.image_exts)
+        orig_labels_p = utils.load_files_paths(d=dir_labels, ext=self.label_exts)
+        aug_images_p = utils.load_files_paths(d=dir_images_aug, ext=self.image_exts)
+        aug_labels_p = utils.load_files_paths(d=dir_labels_aug, ext=self.label_exts)
+        images_p = sorted(orig_images_p + aug_images_p)
+        labels_p = sorted(orig_labels_p + aug_labels_p)
 
+        return model_selection.train_test_split(
+            images_p,
+            labels_p,
+            test_size=self.test_size,
+            random_state=self.seed,
+            shuffle=True
+        )
 
-
-
-
-
-
-
+    def compile_ds_for_yolo(self, dir_images, dir_labels, dir_images_aug, dir_labels_aug):
+        paths = self.train_test_split(
+            dir_images=dir_images,
+            dir_labels=dir_labels,
+            dir_images_aug=dir_images_aug,
+            dir_labels_aug=dir_labels_aug
+        )
+        
 
 
 
@@ -258,10 +280,10 @@ if __name__ == '__main__':
     configs = Configurations(dir_dataset=Path('/home/aklyuev/PycharmProjects/TOYBOY_DYNAMICS/objects_dataset'), box_type='yolo')
     utils = Utils(configs=configs)
     dc = DatasetCreator(configs=configs)
-    dc.create_augmented_set(
+    t = dc.train_test_split(
         dir_images=configs.dir_orig_images,
         dir_labels=configs.dir_orig_labels,
-        dir_image_aug=configs.dir_augmented_images,
+        dir_images_aug=configs.dir_augmented_images,
         dir_labels_aug=configs.dir_augmented_labels
     )
 
