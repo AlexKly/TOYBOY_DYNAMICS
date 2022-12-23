@@ -2,16 +2,11 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from sklearn import model_selection
-import os, sys, cv2, yaml, shutil, logging, albumentations
-
-
-format = '%(asctime)s,%(msecs)03d %(levelname)-4s [%(filename)s:%(lineno)d] %(message)s'
-logging.basicConfig(level=logging.INFO, datefmt='%H:%M:%S', format=format, force=True)
-if sys.version_info.major == 3 and sys.version_info.minor >= 8:
-    logging.basicConfig(level=logging.INFO, datefmt='%H:%M:%S', format=format, force=True)
-logging.info('logger on')
+import os, cv2, yaml, shutil, logging, albumentations
 
 __author__ = 'Alex Klyuev'
+
+TYPE_SIMPLE_RUN = False
 
 
 class Configurations:
@@ -493,32 +488,35 @@ class DatasetCreator:
 
 
 if __name__ == '__main__':
-    # Init paths to datasets:
-    current_dir = Path(__file__).parent
-    dir_dataset = current_dir/'objects_dataset'
-    dir_yolo_dataset = current_dir/'yolo_dataset'
+    if TYPE_SIMPLE_RUN:
+        # Init paths to datasets:
+        current_dir = Path(__file__).parent
+        dir_dataset = current_dir/'objects_dataset'
+        dir_yolo_dataset = current_dir/'yolo_dataset'
 
-    # Init configs:
-    configs = Configurations(
-        dir_dataset=dir_dataset,
-        dir_yolo_dataset=dir_yolo_dataset,
-        stages=['create_labels', 'perform_augmentation', 'compile_yolo_ds'],
-        box_type='yolo',
-        aug_copies=15,
-        test_size=0.3,
-        seed=42,
-        verbose=1
-    )
-    # Init dataset_creator:
-    ds_creator = DatasetCreator(configs=configs)
-    # Perform pipeline execution:
-    ds_creator.perform_dataset_creator(
-        dir_images=configs.dir_images,
-        dir_labels=configs.dir_labels,
-        dir_images_aug=configs.dir_augmented_images,
-        dir_labels_aug=configs.dir_augmented_labels,
-        dir_yolo_train_images=configs.dir_yolo_images_train,
-        dir_yolo_train_labels=configs.dir_yolo_labels_train,
-        dir_yolo_test_images=configs.dir_yolo_images_test,
-        dir_yolo_test_labels=configs.dir_yolo_labels_test
-    )
+        # Init configs:
+        configs = Configurations(
+            dir_dataset=dir_dataset,
+            dir_yolo_dataset=dir_yolo_dataset,
+            stages=['create_labels', 'perform_augmentation', 'compile_yolo_ds'],
+            box_type='yolo',
+            aug_copies=15,
+            test_size=0.3,
+            seed=42,
+            verbose=1
+        )
+        # Init dataset_creator:
+        ds_creator = DatasetCreator(configs=configs)
+        # Perform pipeline execution:
+        ds_creator.perform_dataset_creator(
+            dir_images=configs.dir_images,
+            dir_labels=configs.dir_labels,
+            dir_images_aug=configs.dir_augmented_images,
+            dir_labels_aug=configs.dir_augmented_labels,
+            dir_yolo_train_images=configs.dir_yolo_images_train,
+            dir_yolo_train_labels=configs.dir_yolo_labels_train,
+            dir_yolo_test_images=configs.dir_yolo_images_test,
+            dir_yolo_test_labels=configs.dir_yolo_labels_test
+        )
+    else:
+        logging.info('Set global var "TYPE_SIMPLE_RUN" to True')
