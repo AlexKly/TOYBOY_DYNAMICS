@@ -6,7 +6,7 @@ import os, cv2, yaml, shutil, logging, albumentations
 
 __author__ = 'Alex Klyuev'
 
-TYPE_SIMPLE_RUN = False
+TYPE_SIMPLE_RUN = True
 
 
 class Configurations:
@@ -282,6 +282,8 @@ class DataAugmentation:
             albumentations.RandomShadow(p=0.2),
             albumentations.RandomSnow(p=0.2),
             albumentations.RandomFog(),
+            albumentations.BBoxSafeRandomCrop(p=0.35),
+            albumentations.ShiftScaleRotate(),
             ], bbox_params=albumentations.BboxParams(format=configs.box_type)
         )
         # Other:
@@ -388,17 +390,17 @@ class DatasetCreator:
                     p=label_fn_lab
                 )
 
-    def train_test_split(self, dir_images, dir_labels, dir_images_aug, dir_labels_aug):
+    def train_test_split(self, dir_images_orig, dir_labels_orig, dir_images_aug, dir_labels_aug):
         """ Split paths on train and test groups for train YOLO.
 
-        :param dir_images: Directory of the initial images.
-        :param dir_labels: Directory of the initial labels.
+        :param dir_images_orig: Directory of the initial images.
+        :param dir_labels_orig: Directory of the initial labels.
         :param dir_images_aug: Directory where's saved augmented images.
         :param dir_labels_aug: Directory where's saved augmented labels.
         :return: List of separated on train and test paths to images/labels.
         """
-        orig_images_p = self.utils.load_files_paths(d=dir_images, ext=self.image_exts)
-        orig_labels_p = self.utils.load_files_paths(d=dir_labels, ext=self.label_exts)
+        orig_images_p = self.utils.load_files_paths(d=dir_images_orig, ext=self.image_exts)
+        orig_labels_p = self.utils.load_files_paths(d=dir_labels_orig, ext=self.label_exts)
         aug_images_p = self.utils.load_files_paths(d=dir_images_aug, ext=self.image_exts)
         aug_labels_p = self.utils.load_files_paths(d=dir_labels_aug, ext=self.label_exts)
         images_p = sorted(orig_images_p + aug_images_p)
@@ -412,13 +414,13 @@ class DatasetCreator:
             shuffle=True
         )
 
-    def compile_ds_for_yolo(self, dir_images, dir_labels, dir_images_aug, dir_labels_aug, dir_yolo_train_images,
+    def compile_ds_for_yolo(self, dir_images_orig, dir_labels_orig, dir_images_aug, dir_labels_aug, dir_yolo_train_images,
                             dir_yolo_train_labels, dir_yolo_test_images, dir_yolo_test_labels):
         """ Create data from original images performing autoboxing, augmentation and splitting dataset and sort it
         according needed architecture for train YOLO model for object detection task.
 
-        :param dir_images: Directory of the initial images.
-        :param dir_labels: Directory of the initial labels.
+        :param dir_images_orig: Directory of the initial images.
+        :param dir_labels_orig: Directory of the initial labels.
         :param dir_images_aug: Directory where to save augmented images.
         :param dir_labels_aug: Directory where to save augmented labels.
         :param dir_yolo_train_images: Directory of train images in YOLO dataset.
@@ -428,8 +430,8 @@ class DatasetCreator:
         :return:
         """
         paths = self.train_test_split(
-            dir_images=dir_images,
-            dir_labels=dir_labels,
+            dir_images_orig=dir_images_orig,
+            dir_labels_orig=dir_labels_orig,
             dir_images_aug=dir_images_aug,
             dir_labels_aug=dir_labels_aug
         )
@@ -451,12 +453,15 @@ class DatasetCreator:
         with self.yaml_fn.open('w') as yaml_file:
             yaml.dump(yaml_content, yaml_file, default_flow_style=False, sort_keys=False)
 
-    def perform_dataset_creator(self, dir_images, dir_labels, dir_images_aug, dir_labels_aug, dir_yolo_train_images,
-                                dir_yolo_train_labels, dir_yolo_test_images, dir_yolo_test_labels):
+    def perform_dataset_creator(self, dir_images, dir_labels, dir_images_orig, dir_labels_orig, dir_images_aug,
+                                dir_labels_aug, dir_yolo_train_images, dir_yolo_train_labels, dir_yolo_test_images,
+                                dir_yolo_test_labels):
         """ Execute transformation pipeline for creating dataset for train YOLO.
 
-        :param dir_images: Directory of the initial images.
-        :param dir_labels: Directory of the initial labels.
+        :param dir_images: Directory with all images.
+        :param dir_labels: Directory with all labels.
+        :param dir_images_orig: Directory of the initial images.
+        :param dir_labels_orig: Directory of the labels for initial images.
         :param dir_images_aug: Directory where to save augmented images.
         :param dir_labels_aug: Directory where to save augmented labels.
         :param dir_yolo_train_images: Directory of train images in YOLO dataset.
@@ -466,7 +471,7 @@ class DatasetCreator:
         :return:
         """
         if 'create_labels' in self.stages:
-            self.create_labels(dir_images=dir_images, dir_labels=dir_labels)
+            self.create_labels(dir_images=dir_images, dir_labels=dir_labels_orig)
         if 'perform_augmentation' in self.stages:
             self.create_augmented_set(
                 dir_images=dir_images,
@@ -476,8 +481,8 @@ class DatasetCreator:
             )
         if 'compile_yolo_ds' in self.stages:
             self.compile_ds_for_yolo(
-                dir_images=dir_images,
-                dir_labels=dir_labels,
+                dir_images_orig=dir_images_orig,
+                dir_labels_orig=dir_labels_orig,
                 dir_images_aug=dir_images_aug,
                 dir_labels_aug=dir_labels_aug,
                 dir_yolo_train_images=dir_yolo_train_images,
@@ -500,7 +505,7 @@ if __name__ == '__main__':
             dir_yolo_dataset=dir_yolo_dataset,
             stages=['create_labels', 'perform_augmentation', 'compile_yolo_ds'],
             box_type='yolo',
-            aug_copies=15,
+            aug_copies=20,
             test_size=0.3,
             seed=42,
             verbose=1
@@ -511,6 +516,8 @@ if __name__ == '__main__':
         ds_creator.perform_dataset_creator(
             dir_images=configs.dir_images,
             dir_labels=configs.dir_labels,
+            dir_images_orig=configs.dir_orig_images,
+            dir_labels_orig=configs.dir_orig_labels,
             dir_images_aug=configs.dir_augmented_images,
             dir_labels_aug=configs.dir_augmented_labels,
             dir_yolo_train_images=configs.dir_yolo_images_train,
